@@ -2,6 +2,9 @@ import json
 import sys
 from config import ApplicationConfig
 
+def sample_function():
+    return "Hello World!!"
+
 if __name__ == "__main__":
     required_number_of_args=2
     if len(sys.argv)-1 == required_number_of_args:
