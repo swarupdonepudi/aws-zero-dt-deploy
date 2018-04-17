@@ -32,13 +32,12 @@ def setup_clients(aws_region):
 
 def get_instances_in_elb(elb_name):
     instance_ids = []
-    response = elb_client.describe_load_balancers(
-        LoadBalancerNames=[
-            elb_name,
-        ]
+    response = elb_client.describe_instance_health(
+        LoadBalancerName=elb_name
     )
-    for instance in response["LoadBalancerDescriptions"][0]["Instances"]:
-        instance_ids.append(instance["InstanceId"])
+    for instance in response["InstanceStates"]:
+        if instance["State"] == "InService":
+            instance_ids.append(instance["InstanceId"])
     return instance_ids
 
 
@@ -167,22 +166,8 @@ def start_deploy(elb_name, old_ami_id, new_ami_id, aws_region):
                 ]
             )
 
-            print("Waiting for " + replacement_mapping["old_instance_id"]
-                  + " to be de-registered...")
+            # Could use some exception handling or waiting logic here...
 
-            # Wait for instance to be deregistered for 5 minutes before exiting
-
-            timeout = time.time() + 60*5
-            while True:
-                number_of_attempts = 0
-                instances_in_elb = get_instances_in_elb(elb_name)
-                if replacement_mapping["old_instance_id"] in instances_in_elb \
-                        or number_of_attempts == 5 \
-                        or time.time() > timeout:
-                    break
-                else:
-                    time.sleep(5)
-                number_of_attempts = number_of_attempts + 1
             print("De-registered instance" + replacement_mapping["old_instance_id"]
                   + " from elb...Now Terminating the instance...")
             ec2_client.terminate_instances(

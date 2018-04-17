@@ -31,3 +31,21 @@ docker build -r rolling-deployer .
 ```
 docker run -v ~/.aws/credentials:/root/.aws/credentials rolling-deployer <old-ami-id> <new-ami-id> <elb-name> <aws-region>
 ```
+
+#### Deployment Flow Steps:
+
+1. Get list of InService instances registered with ELB
+2. Create a 1:1 mapping of running instances by reading the attributes of old instances to ensure that we are replacing the machine in the same AZ.
+3. Replace the value of AMI ID of the replacement instance with ** new ami-id **
+4. Launch replacement instances
+5. Wait until all new replacement instances are in ** running ** state
+6. Register one instance with ELB and wait until that instance is in ** "InService" ** status
+7. Deregister the corresponding old instance
+8. Terminate the deregistered instance
+9. Repeat Steps 6, 7 & 8 until all the old instances are replaced by new instances
+10. Brew some good coffee and listen to your favorite band
+
+
+** Demo: **
+
+[![asciicast](https://asciinema.org/a/040ziS6w5VcHuBYcGXUU6K5HB.png)](https://asciinema.org/a/040ziS6w5VcHuBYcGXUU6K5HB)
