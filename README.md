@@ -29,5 +29,5 @@ docker build -r rolling-deployer .
 ##### Run
 
 ```
-docker run rolling-deployer <old-ami-id> <new-ami-id> <elb-name> <aws-region>
+docker run -v ~/.aws/credentials:/root/.aws/credentials rolling-deployer <old-ami-id> <new-ami-id> <elb-name> <aws-region>
 ```
