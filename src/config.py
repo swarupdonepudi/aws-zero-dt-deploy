@@ -1,2 +1,3 @@
 class ApplicationConfig:
-    ELB_ID = 'elb-id'
+    WAITERS_DELAY_SECONDS = 15
+    WAITERS_MAX_ATTEMPTS = 50
