@@ -41,6 +41,18 @@ def get_instances_in_elb(elb_name):
     return instance_ids
 
 
+def generate_replacement_mappings(instance_ids):
+    replacement_mappings = []
+    for instance_id in instance_ids:
+        replacement_mapping = {}
+        replacement_instance_details = get_instance_details(instance_id)
+        replacement_instance_details["ami_id"] = new_ami_id
+        replacement_mapping["old_instance_id"] = instance_id
+        replacement_mapping["replacement_instance_details"] = replacement_instance_details
+        replacement_mappings.append(replacement_mapping)
+    return replacement_mappings
+
+
 def get_instance_details(instance_id):
     print("Getting details of instance : " + instance_id)
     instance_details = {}
@@ -102,19 +114,68 @@ def wait_for_replacement_instances_to_be_ready(replacement_mappings):
             running_instances = running_instances + 1
 
 
+def replace_old_instances_with_new(elb_name, replacement_mappings):
+    for replacement_mapping in replacement_mappings:
+        print("Registering new instance " + replacement_mapping["replacement_instance_details"]["instance_id"]
+              + " with " + elb_name + " load balancer..." )
+        elb_client.register_instances_with_load_balancer(
+            LoadBalancerName=elb_name,
+            Instances=[
+                {
+                    'InstanceId': replacement_mapping["replacement_instance_details"]["instance_id"]
+                }
+            ]
+        )
+
+        print("Waiting for " + replacement_mapping["replacement_instance_details"]["instance_id"]
+              + " to be in InService status")
+
+        instance_in_service_waiter = elb_client.get_waiter('instance_in_service')
+
+        instance_in_service_waiter.wait(
+            LoadBalancerName=elb_name,
+            Instances=[
+                {
+                    'InstanceId': replacement_mapping["replacement_instance_details"]["instance_id"]
+                },
+            ],
+            WaiterConfig={
+                'Delay': ApplicationConfig.WAITERS_DELAY_SECONDS,
+                'MaxAttempts': ApplicationConfig.WAITERS_MAX_ATTEMPTS
+            }
+        )
+        print("Instance " + replacement_mapping["replacement_instance_details"]["instance_id"]
+              + " is in InService status...")
+
+        print("De-registering old instance " + replacement_mapping["old_instance_id"]
+              + " from " + elb_name + " load balancer...")
+
+        elb_client.deregister_instances_from_load_balancer(
+            LoadBalancerName=elb_name,
+            Instances=[
+                {
+                    'InstanceId': replacement_mapping["old_instance_id"]
+                },
+            ]
+        )
+
+        # Could use some exception handling or waiting logic here...
+
+        print("De-registered instance" + replacement_mapping["old_instance_id"]
+              + " from elb...Now Terminating the instance...")
+        ec2_client.terminate_instances(
+            InstanceIds=[
+                replacement_mapping["old_instance_id"]
+            ]
+        )
+
+
 def start_deploy(elb_name, old_ami_id, new_ami_id, aws_region):
     setup_clients(aws_region)
-    replacement_mappings = []
     print("Getting current instances fronted by ELB : " + elb_name)
     instance_ids = get_instances_in_elb(elb_name)
     if len(instance_ids) > 0:
-        for instance_id in instance_ids:
-            replacement_mapping = {}
-            replacement_instance_details = get_instance_details(instance_id)
-            replacement_instance_details["ami_id"] = new_ami_id
-            replacement_mapping["old_instance_id"] = instance_id
-            replacement_mapping["replacement_instance_details"] = replacement_instance_details
-            replacement_mappings.append(replacement_mapping)
+        replacement_mappings = generate_replacement_mappings(instance_ids)
 
         for replacement_mapping in replacement_mappings:
             instance_id = launch_instance(replacement_mapping["replacement_instance_details"])
@@ -122,59 +183,8 @@ def start_deploy(elb_name, old_ami_id, new_ami_id, aws_region):
 
         wait_for_replacement_instances_to_be_ready(replacement_mappings)
 
-        for replacement_mapping in replacement_mappings:
-            print("Registering new instance " + replacement_mapping["replacement_instance_details"]["instance_id"]
-                  + " with " + elb_name + " load balancer..." )
-            elb_client.register_instances_with_load_balancer(
-                LoadBalancerName=elb_name,
-                Instances=[
-                    {
-                        'InstanceId': replacement_mapping["replacement_instance_details"]["instance_id"]
-                    }
-                ]
-            )
-
-            print("Waiting for " + replacement_mapping["replacement_instance_details"]["instance_id"]
-                  + " to be in InService status")
-
-            instance_in_service_waiter = elb_client.get_waiter('instance_in_service')
-
-            instance_in_service_waiter.wait(
-                LoadBalancerName=elb_name,
-                Instances=[
-                    {
-                        'InstanceId': replacement_mapping["replacement_instance_details"]["instance_id"]
-                    },
-                ],
-                WaiterConfig={
-                    'Delay': ApplicationConfig.WAITERS_DELAY_SECONDS,
-                    'MaxAttempts': ApplicationConfig.WAITERS_MAX_ATTEMPTS
-                }
-            )
-            print("Instance " + replacement_mapping["replacement_instance_details"]["instance_id"]
-                  + " is in InService status...")
-
-            print("De-registering old instance " + replacement_mapping["old_instance_id"]
-                  + " from " + elb_name + " load balancer...")
-
-            elb_client.deregister_instances_from_load_balancer(
-                LoadBalancerName=elb_name,
-                Instances=[
-                    {
-                        'InstanceId': replacement_mapping["old_instance_id"]
-                    },
-                ]
-            )
-
-            # Could use some exception handling or waiting logic here...
-
-            print("De-registered instance" + replacement_mapping["old_instance_id"]
-                  + " from elb...Now Terminating the instance...")
-            ec2_client.terminate_instances(
-                InstanceIds=[
-                    replacement_mapping["old_instance_id"]
-                ]
-            )
+        replace_old_instances_with_new(elb_name, replacement_mappings)
+        
         print("Ohooooo!!! Successfully replaced all the old instances running " + old_ami_id
               + " with new instances running " + new_ami_id)
     else:
